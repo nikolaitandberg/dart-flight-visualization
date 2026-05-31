@@ -258,59 +258,42 @@
 
     let vx = U, vy = 0;
 
-    // Fin positions (rear of barrel = cx + barrelW/2)
-    const rearX = D.cx + D.barrelW / 2;
+    const rearX  = D.cx + D.barrelW / 2;
+    const frontX = D.cx - D.barrelW / 2;
+    const spread  = Math.sin(theta / 2);
 
-    // Four fins in top-down view:
-    // Fin 0 (+y, in-plane): tip at rearX + finLen, spread by sin(theta/2) * finLen upward
-    // Fin 1 (-y, in-plane): mirror
-    // Fin 2,3: out-of-plane fins, foreshortened — appear as shorter stubs near center
-
-    const spread = Math.sin(theta / 2);
-    const foreshorten = Math.cos(theta / 2);
-
-    const fins = [
-      { x: rearX + D.finLen * 0.5, y: D.cy - spread * D.finLen, strength:  spread   },  // upper in-plane
-      { x: rearX + D.finLen * 0.5, y: D.cy + spread * D.finLen, strength: -spread   },  // lower in-plane
-      { x: rearX + D.finLen * 0.3, y: D.cy - foreshorten * D.finLen * 0.35, strength:  foreshorten * 0.4 },
-      { x: rearX + D.finLen * 0.3, y: D.cy + foreshorten * D.finLen * 0.35, strength: -foreshorten * 0.4 },
-    ];
-
-    for (const fin of fins) {
-      const dx = px - fin.x;
-      const dy = py - fin.y;
-      const r2 = dx * dx + dy * dy + 1;
-      const str = FIN_STRENGTH * Math.sin(theta) * fin.strength * speed;
-
-      // Dipole: deflect flow outward from fin
-      const factor = str / (r2 * r2);
-      vx += factor * dx * dy;
-      vy += factor * (dy * dy - dx * dx) * 0.5;
+    // Potential-flow doublet aligned with x-axis at (fx, fy).
+    // Models flow bending around a bluff body — slows flow upstream,
+    // accelerates it to the sides, creates a stagnation point at the nose.
+    // vx += μ*(dy²-dx²)/r⁴,  vy -= 2μ*dx*dy/r⁴
+    function addDoublet(fx, fy, mu) {
+      const dx = px - fx, dy = py - fy;
+      const r2 = dx * dx + dy * dy + 9; // +9 prevents singularity
+      const r4 = r2 * r2;
+      vx += mu * (dy * dy - dx * dx) / r4;
+      vy -= 2 * mu * dx * dy / r4;
     }
 
-    // Barrel stagnation: slow down and deflect flow around the barrel
-    const bx = D.cx, by = D.cy;
-    const bdx = px - bx, bdy = py - by;
-    const br2 = bdx * bdx + bdy * bdy + 1;
-    const barrelR = D.barrelH;
-    const stag = (FIN_STRENGTH * 0.12 * speed) / br2;
-    vx += stag * bdx;
-    vy += stag * bdy;
+    // Barrel body (elongated: three doublets along the centreline)
+    const mu0 = 4200 * speed;
+    addDoublet(frontX + D.barrelW * 0.2, D.cy, mu0);
+    addDoublet(D.cx,                      D.cy, mu0);
+    addDoublet(rearX  - D.barrelW * 0.2, D.cy, mu0 * 0.6);
 
-    // Tip: stagnation point — push flow around the tip
-    const tipX = D.cx - D.barrelW / 2 - D.tipLen;
-    const tdx = px - tipX, tdy = py - by;
-    const tr2 = tdx * tdx + tdy * tdy + 1;
-    const tip = (FIN_STRENGTH * 0.06 * speed) / tr2;
-    vx += tip * tdx;
-    vy += tip * tdy;
+    // Tip point
+    addDoublet(frontX - D.tipLen * 0.5, D.cy, 1200 * speed);
 
-    // Wake turbulence (only behind the dart)
-    if (px > D.cx + D.barrelW / 2 + 10) {
-      const wakeDist = px - (D.cx + D.barrelW / 2);
+    // In-plane fins — deflection grows with fin angle
+    const muFin = 3800 * Math.sin(theta) * speed;
+    addDoublet(rearX + D.finLen * 0.5, D.cy - spread * D.finLen * 0.55, muFin);
+    addDoublet(rearX + D.finLen * 0.5, D.cy + spread * D.finLen * 0.55, muFin);
+
+    // Wake turbulence behind the dart
+    if (px > rearX + 10) {
+      const wakeDist = px - rearX;
       const decay = Math.exp(-wakeDist * 0.004);
-      const finEffect = Math.sin(theta) * WAKE_AMPLITUDE;
-      vy += finEffect * decay * Math.sin(wakeDist * WAKE_FREQ + time * 0.04) * U;
+      vy += Math.sin(theta) * WAKE_AMPLITUDE * decay *
+            Math.sin(wakeDist * WAKE_FREQ + time * 0.04) * U;
     }
 
     return { vx, vy };
