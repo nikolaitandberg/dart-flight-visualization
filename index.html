@@ -557,8 +557,8 @@
       if (this.trail.length > TRAIL_LENGTH) this.trail.shift();
 
       const { vx, vy } = computeFlowVelocity(this.x, this.y, params, time);
-      this.x += vx * this.speed * (1 / 60);
-      this.y += vy * this.speed * (1 / 60);
+      this.x += vx * this.speed;
+      this.y += vy * this.speed;
 
       if (this.x > this.w + 5 || this.y < -5 || this.y > this.h + 5) {
         this.reset(false);
