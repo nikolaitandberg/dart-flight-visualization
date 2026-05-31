@@ -1,0 +1,766 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dart Flight Airflow Visualization</title>
+<style>
+  :root {
+    --bg: #080820;
+    --panel-bg: rgba(15, 15, 40, 0.85);
+    --panel-border: rgba(100, 140, 255, 0.2);
+    --accent: #4a9eff;
+    --text: #c8d8ff;
+    --text-dim: #6878a8;
+    --slider-track: #1a2050;
+    --slider-thumb: #4a9eff;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    display: flex;
+    height: 100vh;
+    overflow: hidden;
+  }
+  #canvas-container {
+    flex: 1;
+    position: relative;
+  }
+  canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
+  #controls {
+    width: 240px;
+    padding: 24px 16px;
+    background: var(--panel-bg);
+    border-left: 1px solid var(--panel-border);
+    backdrop-filter: blur(12px);
+    display: flex;
+    flex-direction: column;
+    gap: 28px;
+    overflow-y: auto;
+  }
+  .panel-title {
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--accent);
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--panel-border);
+  }
+  .control-group {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .control-label {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    font-size: 12px;
+    color: var(--text);
+  }
+  .control-label .value {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--accent);
+    min-width: 48px;
+    text-align: right;
+  }
+  input[type=range] {
+    -webkit-appearance: none;
+    width: 100%;
+    height: 4px;
+    background: var(--slider-track);
+    border-radius: 2px;
+    outline: none;
+  }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 14px;
+    height: 14px;
+    background: var(--slider-thumb);
+    border-radius: 50%;
+    cursor: pointer;
+    box-shadow: 0 0 8px rgba(74,158,255,0.6);
+  }
+  input[type=range]::-moz-range-thumb {
+    width: 14px;
+    height: 14px;
+    background: var(--slider-thumb);
+    border-radius: 50%;
+    cursor: pointer;
+    border: none;
+    box-shadow: 0 0 8px rgba(74,158,255,0.6);
+  }
+  .toggle-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 12px;
+    color: var(--text);
+  }
+  .toggle {
+    position: relative;
+    width: 36px;
+    height: 20px;
+    cursor: pointer;
+  }
+  .toggle input { display: none; }
+  .toggle-track {
+    position: absolute;
+    inset: 0;
+    background: var(--slider-track);
+    border-radius: 10px;
+    transition: background 0.2s;
+  }
+  .toggle input:checked ~ .toggle-track { background: var(--accent); }
+  .toggle-thumb {
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    width: 14px;
+    height: 14px;
+    background: white;
+    border-radius: 50%;
+    transition: left 0.2s;
+  }
+  .toggle input:checked ~ .toggle-thumb { left: 19px; }
+  #fin-diagram {
+    width: 100%;
+    height: 80px;
+    display: block;
+  }
+  .desc {
+    font-size: 11px;
+    color: var(--text-dim);
+    line-height: 1.5;
+  }
+  .legend {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font-size: 11px;
+    color: var(--text-dim);
+  }
+  .legend-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .legend-swatch {
+    width: 32px;
+    height: 6px;
+    border-radius: 3px;
+  }
+</style>
+</head>
+<body>
+
+<div id="canvas-container">
+  <canvas id="flow-canvas"></canvas>
+</div>
+
+<div id="controls">
+  <div class="panel-title">Dart Flight Airflow</div>
+
+  <div class="control-group">
+    <div class="control-label">
+      <span>Fin Dihedral Angle</span>
+      <span class="value" id="angle-val">45°</span>
+    </div>
+    <input type="range" id="angle-slider" min="10" max="90" value="45" step="1">
+    <canvas id="fin-diagram"></canvas>
+    <p class="desc">Angle between opposite fins. At 90° fins form a cross (+). Wider angles deflect more air.</p>
+  </div>
+
+  <div class="control-group">
+    <div class="control-label">
+      <span>Flow Speed</span>
+      <span class="value" id="speed-val">1.0×</span>
+    </div>
+    <input type="range" id="speed-slider" min="0.5" max="3" value="1" step="0.1">
+  </div>
+
+  <div class="control-group">
+    <div class="toggle-row">
+      <span>Pressure Field</span>
+      <label class="toggle">
+        <input type="checkbox" id="pressure-toggle" checked>
+        <div class="toggle-track"></div>
+        <div class="toggle-thumb"></div>
+      </label>
+    </div>
+    <div class="toggle-row">
+      <span>Show Dart</span>
+      <label class="toggle">
+        <input type="checkbox" id="dart-toggle" checked>
+        <div class="toggle-track"></div>
+        <div class="toggle-thumb"></div>
+      </label>
+    </div>
+  </div>
+
+  <div class="control-group">
+    <div style="font-size:11px;color:var(--text-dim);font-weight:600;margin-bottom:4px;">Color Scale</div>
+    <div class="legend">
+      <div class="legend-row">
+        <div class="legend-swatch" style="background:linear-gradient(to right,#0033cc,#00aaff,#ffffff,#ffaa00,#cc2200)"></div>
+        <span>Low ← Pressure → High</span>
+      </div>
+      <div class="legend-row">
+        <div class="legend-swatch" style="background:linear-gradient(to right,#0088ff,#ffffff,#ff4400)"></div>
+        <span>Slow ← Speed → Fast</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="control-group">
+    <p class="desc">Flow moves left to right. Dart is stationary in a body-fixed frame. Pressure computed via Bernoulli approximation.</p>
+  </div>
+</div>
+
+<script>
+(function() {
+  'use strict';
+
+  // ── Constants ────────────────────────────────────────────────
+  const PARTICLE_COUNT = 420;
+  const TRAIL_LENGTH   = 28;
+  const BASE_SPEED     = 1.8;      // px per frame at 60fps, unscaled
+  const FIN_STRENGTH   = 18000;    // dipole strength coefficient
+  const WAKE_AMPLITUDE = 0.28;     // wake sinusoidal perturbation
+  const WAKE_FREQ      = 0.018;    // spatial frequency
+  const HEATMAP_SCALE  = 8;        // heatmap pixel size (lower = finer)
+
+  // Dart dimensions (in canvas px, set once layout is known)
+  let D = {};
+
+  function initDartDims(cx, cy) {
+    D = {
+      cx, cy,
+      barrelW: 130, barrelH: 12,
+      tipLen:  28,
+      finLen:  48, finBaseW: 14, finTipW: 4,
+    };
+  }
+
+  // ── Flow Field ────────────────────────────────────────────────
+  function computeFlowVelocity(px, py, params, time) {
+    const { finAngleDeg, speed } = params;
+    const theta = finAngleDeg * Math.PI / 180;
+    const U = BASE_SPEED * speed;
+
+    let vx = U, vy = 0;
+
+    // Fin positions (rear of barrel = cx + barrelW/2)
+    const rearX = D.cx + D.barrelW / 2;
+
+    // Four fins in top-down view:
+    // Fin 0 (+y, in-plane): tip at rearX + finLen, spread by sin(theta/2) * finLen upward
+    // Fin 1 (-y, in-plane): mirror
+    // Fin 2,3: out-of-plane fins, foreshortened — appear as shorter stubs near center
+
+    const spread = Math.sin(theta / 2);
+    const foreshorten = Math.cos(theta / 2);
+
+    const fins = [
+      { x: rearX + D.finLen * 0.5, y: D.cy - spread * D.finLen, strength:  spread   },  // upper in-plane
+      { x: rearX + D.finLen * 0.5, y: D.cy + spread * D.finLen, strength: -spread   },  // lower in-plane
+      { x: rearX + D.finLen * 0.3, y: D.cy - foreshorten * D.finLen * 0.35, strength:  foreshorten * 0.4 },
+      { x: rearX + D.finLen * 0.3, y: D.cy + foreshorten * D.finLen * 0.35, strength: -foreshorten * 0.4 },
+    ];
+
+    for (const fin of fins) {
+      const dx = px - fin.x;
+      const dy = py - fin.y;
+      const r2 = dx * dx + dy * dy + 1;
+      const str = FIN_STRENGTH * Math.sin(theta) * fin.strength * speed;
+
+      // Dipole: deflect flow outward from fin
+      const factor = str / (r2 * r2);
+      vx += factor * dx * dy;
+      vy += factor * (dy * dy - dx * dx) * 0.5;
+    }
+
+    // Barrel stagnation: slow down and deflect flow around the barrel
+    const bx = D.cx, by = D.cy;
+    const bdx = px - bx, bdy = py - by;
+    const br2 = bdx * bdx + bdy * bdy + 1;
+    const barrelR = D.barrelH;
+    const stag = (FIN_STRENGTH * 0.12 * speed) / br2;
+    vx += stag * bdx;
+    vy += stag * bdy;
+
+    // Tip: stagnation point — push flow around the tip
+    const tipX = D.cx - D.barrelW / 2 - D.tipLen;
+    const tdx = px - tipX, tdy = py - by;
+    const tr2 = tdx * tdx + tdy * tdy + 1;
+    const tip = (FIN_STRENGTH * 0.06 * speed) / tr2;
+    vx += tip * tdx;
+    vy += tip * tdy;
+
+    // Wake turbulence (only behind the dart)
+    if (px > D.cx + D.barrelW / 2 + 10) {
+      const wakeDist = px - (D.cx + D.barrelW / 2);
+      const decay = Math.exp(-wakeDist * 0.004);
+      const finEffect = Math.sin(theta) * WAKE_AMPLITUDE;
+      vy += finEffect * decay * Math.sin(wakeDist * WAKE_FREQ + time * 0.04) * U;
+    }
+
+    return { vx, vy };
+  }
+
+  // ── Dart Geometry & Collision ────────────────────────────────
+  function isInsideDart(px, py, finAngleDeg) {
+    const theta = finAngleDeg * Math.PI / 180;
+    const spread = Math.sin(theta / 2);
+
+    // Barrel rect
+    const bx1 = D.cx - D.barrelW / 2, bx2 = D.cx + D.barrelW / 2;
+    const by1 = D.cy - D.barrelH / 2 - 1, by2 = D.cy + D.barrelH / 2 + 1;
+    if (px >= bx1 && px <= bx2 && py >= by1 && py <= by2) return true;
+
+    // Tip triangle (rough rect)
+    const tipX = bx1 - D.tipLen;
+    if (px >= tipX && px <= bx1) {
+      const frac = (px - tipX) / D.tipLen;
+      const halfH = frac * D.barrelH * 0.5;
+      if (Math.abs(py - D.cy) <= halfH) return true;
+    }
+
+    // In-plane fins
+    const rearX = D.cx + D.barrelW / 2;
+    const finTipX = rearX + D.finLen;
+    if (px >= rearX && px <= finTipX) {
+      const frac = (px - rearX) / D.finLen;
+      const finHalfBase = D.finBaseW / 2;
+      const finHalfTip = D.finTipW / 2;
+      const halfW = finHalfBase + frac * (finHalfTip - finHalfBase);
+      const finCenterY_upper = D.cy - spread * D.finLen * frac;
+      const finCenterY_lower = D.cy + spread * D.finLen * frac;
+      if (Math.abs(py - finCenterY_upper) <= halfW + 2) return true;
+      if (Math.abs(py - finCenterY_lower) <= halfW + 2) return true;
+    }
+
+    return false;
+  }
+
+  function drawDart(ctx, finAngleDeg) {
+    const theta = finAngleDeg * Math.PI / 180;
+    const spread = Math.sin(theta / 2);
+    const foreshorten = Math.cos(theta / 2);
+
+    const rearX = D.cx + D.barrelW / 2;
+    const frontX = D.cx - D.barrelW / 2;
+    const tipX = frontX - D.tipLen;
+
+    // ── Fins (drawn behind barrel) ──
+    ctx.save();
+
+    // Out-of-plane fins (more muted)
+    const oop = foreshorten;
+    drawFin(ctx, rearX, D.cy, -oop * D.finLen * 0.35, 'rgba(80,120,200,0.35)', true);
+
+    // In-plane fins (upper and lower)
+    const upperTipX = rearX + D.finLen;
+    const upperTipY = D.cy - spread * D.finLen;
+    const lowerTipX = rearX + D.finLen;
+    const lowerTipY = D.cy + spread * D.finLen;
+
+    ctx.beginPath();
+    ctx.moveTo(rearX, D.cy - D.finBaseW / 2);
+    ctx.lineTo(upperTipX, upperTipY - D.finTipW / 2);
+    ctx.lineTo(upperTipX, upperTipY + D.finTipW / 2);
+    ctx.lineTo(rearX, D.cy + D.finBaseW / 2);
+    ctx.closePath();
+    const gFin1 = ctx.createLinearGradient(rearX, D.cy, upperTipX, upperTipY);
+    gFin1.addColorStop(0, 'rgba(120,170,255,0.65)');
+    gFin1.addColorStop(1, 'rgba(60,100,200,0.25)');
+    ctx.fillStyle = gFin1;
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(140,190,255,0.7)';
+    ctx.lineWidth = 0.8;
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.moveTo(rearX, D.cy - D.finBaseW / 2);
+    ctx.lineTo(lowerTipX, lowerTipY - D.finTipW / 2);
+    ctx.lineTo(lowerTipX, lowerTipY + D.finTipW / 2);
+    ctx.lineTo(rearX, D.cy + D.finBaseW / 2);
+    ctx.closePath();
+    const gFin2 = ctx.createLinearGradient(rearX, D.cy, lowerTipX, lowerTipY);
+    gFin2.addColorStop(0, 'rgba(120,170,255,0.65)');
+    gFin2.addColorStop(1, 'rgba(60,100,200,0.25)');
+    ctx.fillStyle = gFin2;
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(140,190,255,0.7)';
+    ctx.lineWidth = 0.8;
+    ctx.stroke();
+
+    ctx.restore();
+
+    // ── Barrel ──
+    ctx.save();
+    const gBarrel = ctx.createLinearGradient(0, D.cy - D.barrelH / 2, 0, D.cy + D.barrelH / 2);
+    gBarrel.addColorStop(0, '#d0d8e8');
+    gBarrel.addColorStop(0.35, '#f0f4ff');
+    gBarrel.addColorStop(0.6, '#c8d0e0');
+    gBarrel.addColorStop(1, '#888fa8');
+    ctx.fillStyle = gBarrel;
+    ctx.beginPath();
+    ctx.roundRect(frontX, D.cy - D.barrelH / 2, D.barrelW, D.barrelH, 2);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(200,220,255,0.5)';
+    ctx.lineWidth = 0.5;
+    ctx.stroke();
+    ctx.restore();
+
+    // ── Tip (point) ──
+    ctx.save();
+    const gTip = ctx.createLinearGradient(tipX, D.cy, frontX, D.cy);
+    gTip.addColorStop(0, '#aab8cc');
+    gTip.addColorStop(1, '#d8e0f0');
+    ctx.fillStyle = gTip;
+    ctx.beginPath();
+    ctx.moveTo(tipX, D.cy);
+    ctx.lineTo(frontX, D.cy - D.barrelH / 2);
+    ctx.lineTo(frontX, D.cy + D.barrelH / 2);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(200,220,255,0.4)';
+    ctx.lineWidth = 0.5;
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawFin(ctx, baseX, baseY, offsetY, color, isOOP) {
+    const len = D.finLen * (isOOP ? Math.abs(offsetY / D.finLen) + 0.3 : 1);
+    const tipX = baseX + len * 0.9;
+    const tipY = baseY + offsetY;
+
+    ctx.beginPath();
+    ctx.moveTo(baseX, baseY - D.finBaseW / 2);
+    ctx.lineTo(tipX, tipY - D.finTipW / 2);
+    ctx.lineTo(tipX, tipY + D.finTipW / 2);
+    ctx.lineTo(baseX, baseY + D.finBaseW / 2);
+    ctx.closePath();
+    ctx.fillStyle = color;
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(140,190,255,0.35)';
+    ctx.lineWidth = 0.5;
+    ctx.stroke();
+  }
+
+  // ── Pressure Heatmap ─────────────────────────────────────────
+  let heatmapCanvas = null;
+  let heatmapDirty = true;
+
+  function ensureHeatmap(w, h) {
+    if (!heatmapCanvas) {
+      heatmapCanvas = document.createElement('canvas');
+    }
+    const hw = Math.ceil(w / HEATMAP_SCALE);
+    const hh = Math.ceil(h / HEATMAP_SCALE);
+    if (heatmapCanvas.width !== hw || heatmapCanvas.height !== hh) {
+      heatmapCanvas.width = hw;
+      heatmapCanvas.height = hh;
+      heatmapDirty = true;
+    }
+  }
+
+  function pressureColor(p) {
+    // p: -1 (low pressure / fast) to +1 (high pressure / slow)
+    // Colormap: blue → cyan → white → yellow → red
+    const t = (p + 1) / 2; // 0..1
+    let r, g, b;
+    if (t < 0.25) {
+      const s = t / 0.25;
+      r = 0; g = Math.round(s * 170); b = Math.round(180 + s * 75);
+    } else if (t < 0.5) {
+      const s = (t - 0.25) / 0.25;
+      r = Math.round(s * 255); g = Math.round(170 + s * 85); b = Math.round(255 - s * 255);
+    } else if (t < 0.75) {
+      const s = (t - 0.5) / 0.25;
+      r = 255; g = Math.round(255 - s * 85); b = 0;
+    } else {
+      const s = (t - 0.75) / 0.25;
+      r = 255; g = Math.round(170 - s * 170); b = 0;
+    }
+    return [r, g, b];
+  }
+
+  function recomputeHeatmap(w, h, params) {
+    if (!heatmapCanvas) return;
+    const hw = heatmapCanvas.width, hh = heatmapCanvas.height;
+    const hctx = heatmapCanvas.getContext('2d');
+    const imgData = hctx.createImageData(hw, hh);
+    const d = imgData.data;
+    const U = BASE_SPEED * params.speed;
+
+    for (let hy = 0; hy < hh; hy++) {
+      for (let hx = 0; hx < hw; hx++) {
+        const px = hx * HEATMAP_SCALE + HEATMAP_SCALE / 2;
+        const py = hy * HEATMAP_SCALE + HEATMAP_SCALE / 2;
+
+        if (isInsideDart(px, py, params.finAngleDeg)) {
+          const idx = (hy * hw + hx) * 4;
+          d[idx] = 20; d[idx+1] = 25; d[idx+2] = 50; d[idx+3] = 200;
+          continue;
+        }
+
+        const { vx, vy } = computeFlowVelocity(px, py, params, 0);
+        const spd = Math.sqrt(vx * vx + vy * vy);
+        // Bernoulli: p ∝ 1 - |v|²/U²
+        const pNorm = Math.max(-1, Math.min(1, 1 - spd * spd / (U * U * 2.5)));
+        const [r, g, b] = pressureColor(pNorm);
+
+        const idx = (hy * hw + hx) * 4;
+        d[idx] = r; d[idx+1] = g; d[idx+2] = b; d[idx+3] = 180;
+      }
+    }
+    hctx.putImageData(imgData, 0, 0);
+    heatmapDirty = false;
+  }
+
+  function drawHeatmap(ctx, w, h) {
+    if (!heatmapCanvas) return;
+    ctx.save();
+    ctx.globalAlpha = 0.72;
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(heatmapCanvas, 0, 0, w, h);
+    ctx.restore();
+  }
+
+  // ── Particles ────────────────────────────────────────────────
+  class Particle {
+    constructor(w, h) {
+      this.w = w; this.h = h;
+      this.reset(true);
+    }
+
+    reset(randomX) {
+      this.x = randomX ? Math.random() * this.w * 0.35 : -2;
+      this.y = (Math.random() * 0.9 + 0.05) * this.h;
+      this.trail = [];
+      this.speed = 0.7 + Math.random() * 0.6;
+    }
+
+    step(params, time) {
+      this.trail.push({ x: this.x, y: this.y });
+      if (this.trail.length > TRAIL_LENGTH) this.trail.shift();
+
+      const { vx, vy } = computeFlowVelocity(this.x, this.y, params, time);
+      this.x += vx * this.speed * (1 / 60);
+      this.y += vy * this.speed * (1 / 60);
+
+      if (this.x > this.w + 5 || this.y < -5 || this.y > this.h + 5) {
+        this.reset(false);
+        return;
+      }
+
+      if (isInsideDart(this.x, this.y, params.finAngleDeg)) {
+        this.reset(false);
+      }
+    }
+
+    draw(ctx, params) {
+      if (this.trail.length < 2) return;
+      const U = BASE_SPEED * params.speed;
+
+      for (let i = 1; i < this.trail.length; i++) {
+        const t0 = this.trail[i - 1], t1 = this.trail[i];
+        const frac = i / this.trail.length;
+        const alpha = frac * 0.75;
+
+        const dx = t1.x - t0.x, dy = t1.y - t0.y;
+        const spd = Math.sqrt(dx * dx + dy * dy) * 60;
+        const rel = spd / U - 1; // positive = faster than free stream
+
+        let r, g, b;
+        if (rel < 0) {
+          const t = Math.max(0, 1 + rel);
+          r = Math.round(t * 100); g = Math.round(150 + t * 100); b = 255;
+        } else {
+          const t = Math.min(1, rel);
+          r = 255; g = Math.round(220 - t * 180); b = Math.round(255 - t * 255);
+        }
+
+        ctx.beginPath();
+        ctx.strokeStyle = `rgba(${r},${g},${b},${alpha})`;
+        ctx.lineWidth = 1.2;
+        ctx.moveTo(t0.x, t0.y);
+        ctx.lineTo(t1.x, t1.y);
+        ctx.stroke();
+      }
+
+      // Particle head dot
+      const last = this.trail[this.trail.length - 1];
+      ctx.beginPath();
+      ctx.fillStyle = 'rgba(255,255,255,0.6)';
+      ctx.arc(last.x, last.y, 1.2, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  // ── Fin Diagram ───────────────────────────────────────────────
+  function drawFinDiagram(finCanvas, finAngleDeg) {
+    const theta = finAngleDeg * Math.PI / 180;
+    const w = finCanvas.width, h = finCanvas.height;
+    const ctx = finCanvas.getContext('2d');
+    ctx.clearRect(0, 0, w, h);
+
+    const cx = w / 2, cy = h / 2;
+    const r = Math.min(w, h) * 0.38;
+
+    // Draw cross-section of fins
+    const angles = [0, Math.PI / 2, Math.PI, Math.PI * 3 / 2];
+    const half = theta / 2;
+
+    ctx.lineWidth = 2;
+    ctx.lineCap = 'round';
+
+    for (let i = 0; i < 4; i++) {
+      const baseAngle = angles[i] + Math.PI / 4;
+      const finAngle1 = baseAngle - half;
+      const finAngle2 = baseAngle + half;
+
+      ctx.beginPath();
+      ctx.moveTo(cx, cy);
+      ctx.lineTo(cx + Math.cos(finAngle1) * r, cy + Math.sin(finAngle1) * r);
+      ctx.strokeStyle = 'rgba(120,170,255,0.8)';
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.moveTo(cx, cy);
+      ctx.lineTo(cx + Math.cos(finAngle2) * r, cy + Math.sin(finAngle2) * r);
+      ctx.strokeStyle = 'rgba(120,170,255,0.4)';
+      ctx.stroke();
+    }
+
+    // Dart barrel circle
+    ctx.beginPath();
+    ctx.arc(cx, cy, r * 0.15, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(200,220,255,0.5)';
+    ctx.fill();
+
+    // Angle arc + label
+    const arc1 = Math.PI / 4 - half;
+    const arc2 = Math.PI / 4 + half;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r * 0.28, arc1, arc2);
+    ctx.strokeStyle = 'rgba(255,200,80,0.9)';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+  }
+
+  // ── Main App ──────────────────────────────────────────────────
+  const canvas = document.getElementById('flow-canvas');
+  const ctx = canvas.getContext('2d');
+  const finDiagram = document.getElementById('fin-diagram');
+
+  let params = { finAngleDeg: 45, speed: 1.0 };
+  let showPressure = true;
+  let showDart = true;
+  let particles = [];
+  let time = 0;
+  let W = 0, H = 0;
+
+  function resize() {
+    const container = document.getElementById('canvas-container');
+    W = container.clientWidth;
+    H = container.clientHeight;
+    canvas.width = W;
+    canvas.height = H;
+    initDartDims(W * 0.42, H * 0.5);
+    ensureHeatmap(W, H);
+    heatmapDirty = true;
+    particles = [];
+    for (let i = 0; i < PARTICLE_COUNT; i++) {
+      particles.push(new Particle(W, H));
+    }
+  }
+
+  function frame() {
+    time++;
+
+    if (heatmapDirty && showPressure) {
+      recomputeHeatmap(W, H, params);
+    }
+
+    ctx.fillStyle = '#080820';
+    ctx.fillRect(0, 0, W, H);
+
+    if (showPressure) drawHeatmap(ctx, W, H);
+
+    // Flow direction arrow
+    ctx.save();
+    ctx.globalAlpha = 0.18;
+    ctx.fillStyle = '#4a9eff';
+    ctx.font = '13px system-ui';
+    ctx.textAlign = 'left';
+    for (let y = 40; y < H; y += 60) {
+      ctx.fillText('→', 16, y);
+    }
+    ctx.restore();
+
+    for (const p of particles) {
+      p.step(params, time);
+      p.draw(ctx, params);
+    }
+
+    if (showDart) drawDart(ctx, params.finAngleDeg);
+
+    requestAnimationFrame(frame);
+  }
+
+  // ── UI wiring ─────────────────────────────────────────────────
+  const angleSlider = document.getElementById('angle-slider');
+  const angleVal    = document.getElementById('angle-val');
+  const speedSlider = document.getElementById('speed-slider');
+  const speedVal    = document.getElementById('speed-val');
+
+  function initFinDiagram() {
+    finDiagram.width = finDiagram.offsetWidth || 208;
+    finDiagram.height = 80;
+    drawFinDiagram(finDiagram, params.finAngleDeg);
+  }
+
+  angleSlider.addEventListener('input', () => {
+    params.finAngleDeg = Number(angleSlider.value);
+    angleVal.textContent = params.finAngleDeg + '°';
+    heatmapDirty = true;
+    drawFinDiagram(finDiagram, params.finAngleDeg);
+  });
+
+  speedSlider.addEventListener('input', () => {
+    params.speed = Number(speedSlider.value);
+    speedVal.textContent = params.speed.toFixed(1) + '×';
+    heatmapDirty = true;
+  });
+
+  document.getElementById('pressure-toggle').addEventListener('change', (e) => {
+    showPressure = e.target.checked;
+    if (showPressure && heatmapDirty) recomputeHeatmap(W, H, params);
+  });
+
+  document.getElementById('dart-toggle').addEventListener('change', (e) => {
+    showDart = e.target.checked;
+  });
+
+  window.addEventListener('resize', () => { resize(); initFinDiagram(); });
+
+  resize();
+  initFinDiagram();
+  requestAnimationFrame(frame);
+
+})();
+</script>
+</body>
+</html>
